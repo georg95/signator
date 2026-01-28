@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser runtime test</title>
+  <style>
+  html, body {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    padding: 20px;
+  }
+  #output {
+    margin: 0;
+  }
+  html, body, pre {
+    font-size: 15px;
+    font-family: 'Courier New', Courier, monospace;
+    background-color: #222;
+    color: bisque;
+  }
+  </style>
+</head>
+<body>
+<pre id="output"></pre>
+<script>
+function log(...texts) { window.output.innerText += texts.join('\n') + '\n' }
+async function test(params) {
+  const html = await fetch('../index.html').then(r => r.text())
+  const script = html.split('<script>')[1].split('<\/script>')[0]
+  var SANDBOX = true
+  eval(script)
+  async function testTx(unsignedUr, expectedUrSigned, privKey=80157247896833422780274906011551577885466907210509513158667759145299829467000n) {
+    const txParsed = decodeTranscation(decodeUR(unsignedUr.split('/')[1].toLowerCase()))
+    const cborSigned = await signEthRequest(txParsed, privKey)
+    const urSigned = 'UR:ETH-SIGNATURE/' + encodeUR(cborSigned).toUpperCase()
+    if (urSigned === expectedUrSigned) {
+      log('✅ transaction sign')
+    } else {
+      log('❌ transaction sign')
+      log(urSigned)
+      log(expectedUrSigned)
+    }
+  }
+  function encBuffer(text) {
+    const salt = new Uint8Array(Math.floor(Math.random() * 28) + 4)
+    let buffer = new Uint8Array(256)
+    crypto.getRandomValues(salt)
+    let enteredSymbols = 0
+    const buf = (new TextEncoder()).encode(text)
+    while (enteredSymbols < buf.length) {
+      buffer[enteredSymbols] = buf[enteredSymbols] ^ salt[(enteredSymbols++) % salt.length]
+    }
+    return { buffer, enteredSymbols, salt }
+  }
+  async function deriveTest(seed, address, privKey, qr) {
+    const acc = await seedPhraseToAccount(encBuffer(seed))
+    if (acc.address === address.toLowerCase() && acc.privKey === privKey && acc.qr === qr) {
+      log('✅ bip39 seed to account')
+    } else {
+      log('❌ bip39 seed to account', address, address.toLowerCase(), privKey, acc.privKey, qr, acc.qr)
+    }
+  }
+  async function fountainPrngTest() {
+    const testData = [{"seq":[64,99,36,19,86,65,28,87,92,34,10,14],"ord":5539,"size":105,"crc":13589785},{"seq":[92,10,80,120,98,105,75,21,78,6,27,34,35,110,57,96,101,94,41,85,73,28,81,3,22,64,44,8,113,115,59,93,48,87,88,121,108,17,26,55],"ord":5307,"size":122,"crc":321739638},{"seq":[33,31,13,35,86,95,71,2,41,62,67,46,101],"ord":4303,"size":108,"crc":111823382},{"seq":[86],"ord":2078,"size":116,"crc":206955111},{"seq":[58,51,88,23,87,11,105,72,94,12,65,3,22,41,62,93,96,39,69,102],"ord":4679,"size":107,"crc":296819446},{"seq":[19,71,16,44,3,111,43,10,81,21,72,86,46,34,37,11,39,91,63,25,73,1,9,109,94,28,49,76,95,80,42,40,6,54,30,104,24,102,57,26,7,60],"ord":2977,"size":120,"crc":308958639},{"seq":[87,33,46,100,26,104,65,99,81,78,31,13,106,2,119,120,51,108,98,28,11,110,112,122,59,29,23,89,80,116,18,54,14,111,102,35,4,113,93,91,118,10,8],"ord":3636,"size":123,"crc":433254393},{"seq":[106,28,75,31],"ord":2235,"size":117,"crc":341319473},{"seq":[70,82,88,84,75,59,94,81,113,80,4,95,116,128,112,85,60,22,109,36,114,31,37,16,91,125,54,44,57,71,21,25,11,9,74,63,5,3,19,72,103,46,48,87,55,12,90,93,73,20,115,122,66,28,52,1,35,29,43,61,39,127,14,51,17,99,86,40,97,79,89,105,96,8,108,23,26,123,110,0,69,45,124,106,42],"ord":5700,"size":129,"crc":173172747},{"seq":[35,77,110,26,32,41,14,49,44,117,71,60,9,7,34,29,57,5,13,28,10,4,21,78,86],"ord":6063,"size":120,"crc":398138730}]
+    for (var { crc, size, ord, seq } of testData) {
+      const seqCalc = await chooseFragments(ord, size, crc)
+      if (seq.join() !== seqCalc.join()) {
+        log('❌ fountain codes prng', seq, seqCalc)
+        return
+      }
+    }
+    log('✅ fountain codes prng')
+  }
+
+  async function fountainTest() {
+    const message = hexToBytes('00112233445566778899aabbccdd')
+    const encodePart = fountainEncoder(message, 5)
+    const res = [
+      'ur:bytes/1-3/lpadaxbacyemjpltylfeaebycpeofyleaepspk',
+      'ur:bytes/2-3/lpaoaxbacyemjpltylfegoiyktlonlihhyiepl',
+      'ur:bytes/3-3/lpaxaxbacyemjpltylfepkrksfutaehsctpfbe',
+      'ur:bytes/4-3/lpaaaxbacyemjpltylfegoktgorkutsbdrjntl',
+      'ur:bytes/5-3/lpahaxbacyemjpltylfepkrksfutaenlutzool',
+      'ur:bytes/6-3/lpamaxbacyemjpltylfepkrksfutaevwrfueki',
+      'ur:bytes/7-3/lpataxbacyemjpltylfepkpkwywyfydmahkisw',
+      'ur:bytes/8-3/lpayaxbacyemjpltylfepkrksfutaedmdiluzc',
+      'ur:bytes/9-3/lpasaxbacyemjpltylfegoiyktlonldriyhefx',
+      'ur:bytes/10-3/lpbkaxbacyemjpltylfegoktgorkutaepaetgo',
+      'ur:bytes/11-3/lpbdaxbacyemjpltylfepkrksfutaegmfgplds',
+      'ur:bytes/12-3/lpbnaxbacyemjpltylfezmsfnliyutoxqzwles',
+      'ur:bytes/13-3/lpbtaxbacyemjpltylfezmsfnliyutesrkaygw',
+      'ur:bytes/14-3/lpbaaxbacyemjpltylfepkpkwywyfylagulfln',
+      'ur:bytes/15-3/lpbsaxbacyemjpltylfegoktgorkutlrbghfet',
+      'ur:bytes/16-3/lpbeaxbacyemjpltylfeaebycpeofyjsryjspf',
+      'ur:bytes/17-3/lpbyaxbacyemjpltylfepkrksfutaevasrfdtt',
+      'ur:bytes/18-3/lpbgaxbacyemjpltylfepkpkwywyfysfbbdlst',
+      'ur:bytes/19-3/lpbwaxbacyemjpltylfegoktgorkutspgozokk',
+      'ur:bytes/20-3/lpbbaxbacyemjpltylfezmsfnliyutwnhesbia'
+    ]
+    for (var expectedUR of res) {
+      const gotUR = await encodePart()
+      if (expectedUR !== gotUR) {
+        log('❌ fountain encode', expectedUR, gotUR)
+        return
+      }
+    }
+    log('✅ fountain encode')
+    const nextPart = fountainDecoder()
+    for (var i = 0; i < 10; i++) {
+      const { progress, message: decodedMessage } = await nextPart(await encodePart())
+      if (decodedMessage) {
+        log(bytesToHex(decodedMessage) === bytesToHex(message) ? '✅ fountain decode' : '❌ fountain decode')
+        break
+      }
+    }
+  }
+  async function testEncryption() {
+    const pkey = 0xb1376501360b3deb001458170185eb367369254519bf06550f667c54ba8a2778n
+    const password = 'abc1234'
+
+    let start = performance.now()
+    const enc = await encryptPrivkey(pkey, encBuffer(password))
+    const enctypeTime = performance.now() - start | 0; start = performance.now()
+    const dec = await decryptPrivkey(enc, encBuffer(password))
+    const decryptTime = performance.now() - start | 0
+    log(dec === pkey ? `✅ encrypt -> decrypt\n${enctypeTime}ms - encrypt, ${decryptTime}ms - decrypt` : '❌ encrypt -> decrypt pbkdf2x600000')
+  }
+  async function e2eSignTest() {
+    const expectedUrUnsigned = 'UR:ETH-SIGN-REQUEST/ONADTPDAGDPTIEFYKPREETGWWZNNJSBGCALANLGLVWAOHDEOAOWNLFKNINAOLRHYLGVWBKLRHYLGVWBKLFGMASMWWFNETBVWCYPMLOYNWKTOIMROLFJPKKTKZMRHCPIYLOLESTCNAALDVSAEAELARTAXAAAACFKNINAHTAADDYOEADLECSDWYKCSFNYKAEYKAEWKAEWKAOCYCFQZRNVOONDSBTGY'
+    let start = performance.now()
+    const img = new Image()
+    img.src = 'tx_unsigned.jpg'
+    await new Promise((resolve, reject) => img.onload = () => resolve(img))
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    canvas.width = img.width
+    canvas.height = img.height
+    ctx.drawImage(img, 0, 0)
+    const data = ctx.getImageData(0, 0, img.width, img.height)
+    const loadTime = performance.now() - start | 0; start = performance.now()
+    const urUnsigned = qr.decodeQR(data)
+    const parseTime = performance.now() - start | 0
+    if (urUnsigned === expectedUrUnsigned) {
+      log(`✅ .jpg -> QR data\n${loadTime}ms - load, ${parseTime}ms - parse`)
+    } else {
+      log(`❌ .jpg -> QR data`, expectedUrUnsigned, urUnsigned)
+      return
+    }
+    const cborUnsigned = decodeUR(urUnsigned.split('/')[1].toLowerCase())
+    const txParsed = decodeTranscation(cborUnsigned)
+    if (`${txParsed.chainId} ${txParsed.to} ${txParsed.data.length} ${txParsed.value} ${txParsed.maxFee}` !== '31337 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 0 10 0.000033315094151514') {
+      log(`❌ TxData -> Decoded TX`)
+      log('31337 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266 0 10 0.000033315094151514')
+      log(`${txParsed.chainId} ${txParsed.to} ${txParsed.data.length} ${txParsed.value} ${txParsed.maxFee}`)
+      return
+    }
+    const cborSigned = await signEthRequest(txParsed, 0xb1376501360b3deb001458170185eb367369254519bf06550f667c54ba8a2778n)
+    if (bytesToHex(cborSigned) === 'a201d82550a9644475b5384ff29e71121d80994ee50258413fe691c92bd902fb3e9cbd3c33e5a9e27606ae73b14017230ee8f132314650c01352948fc87a980e1dab086f0981fa149656509b0e21e19528c582e378d6dbf401') {
+      log(`✅ TxData -> SignedTxData`)
+    } else {
+      log(`❌ TxData -> SignedTxData`)
+      log('a201d82550a9644475b5384ff29e71121d80994ee50258413fe691c92bd902fb3e9cbd3c33e5a9e27606ae73b14017230ee8f132314650c01352948fc87a980e1dab086f0981fa149656509b0e21e19528c582e378d6dbf401')
+      log(bytesToHex(cborSigned))
+      return
+    }
+    const urSigned ='UR:ETH-SIGNATURE/' +  encodeUR(cborSigned).toUpperCase();
+    const expectedUrSigned = 'UR:ETH-SIGNATURE/OEADTPDAGDPTIEFYKPREETGWWZNNJSBGCALANLGLVWAOHDFPFHVAMESODNTAAOZOFMNSRYFNEOVWPTVOKOAMPLJKPAFZCHCNBAVSWNEYEHFGGDRTBWGMMWMYSPKNMKBACAPYAYJLASLYZSBBMTHFGDNDBACLVYMDDESKLFVLKSTBUYWKADGAECTABE'
+    if (urSigned === expectedUrSigned) {
+      log(`✅ SignedTxData -> urCbor`)
+    } else {
+      log(`❌ SignedTxData -> urCbor`, expectedUrSigned, urSigned)
+      return
+    }
+    const expectedQrSigned = [
+      '00000000000000000000000000000000000000000000000000000',
+      '00000000000000000000000000000000000000000000000000000',
+      '00111111101101011110101100011100111000100010111111100',
+      '00100000100111010100000110001001101110011110100000100',
+      '00101110100011101111101000011001000110100110101110100',
+      '00101110101110100001110011010111101000110100101110100',
+      '00101110101111001010011111111101011010100000101110100',
+      '00100000101101010100001110001000011100111000100000100',
+      '00111111101010101010101010101010101010101010111111100',
+      '00000000001000001111100110001011011110110000000000000',
+      '00100010111111001010110111111010100010110011111100100',
+      '00011011010011011110110011100011101001011110100101100',
+      '00100111100000101111100111000011000100010111000110100',
+      '00001110001011011110110010111110000001101011101000100',
+      '00101100101011011010011110111101101100000001011000000',
+      '00101101011011001110000110101101001001110010100001100',
+      '00100110100010000000101101000101011101100010100101000',
+      '00001101011111110101011000100111011011110110101011100',
+      '00101111111001111001001001011111101110110110111101100',
+      '00011111010100111000001010101011010001101101101110100',
+      '00111010100011100010101000001001000111010111010001000',
+      '00101101011011000000001100111111011111110101000100100',
+      '00000100100000100001000011110010111101110100110100100',
+      '00010011001001011001011110100111000111000111010000100',
+      '00010111111010100010101011111011111011111111111111100',
+      '00010110001111011101101110001100100001010110001100000',
+      '00100010101001000101100010101110101100111110101111000',
+      '00000010001011011010101010001010100111110010001000100',
+      '00000111111001100001101011111010001110010111111011000',
+      '00011101011011110101111111000100001000000011001011100',
+      '00011100101010110000001110111001010100001010011011000',
+      '00001010000011101101011001011100011010111010101101100',
+      '00000100101010000010010001111110010001011111011110100',
+      '00010001001111010100100100100111111001110001111110000',
+      '00000010111000101010001000001001110100010000011111100',
+      '00001110010001100011101010011001011001111000001101100',
+      '00110101110101000110000110111101010000010001111010100',
+      '00000000001011101101000001100001100111001011000011000',
+      '00000101101100110101000010110011110011110001110001000',
+      '00110100001110111010011110000110110100001111011100100',
+      '00010001111100110011010101001111010111011100010010100',
+      '00011100010011001110011111111001101011010011000011000',
+      '00111000111100101111110011111111100000011111111100000',
+      '00000000001001010011110110001010000101101010001001100',
+      '00111111101001000110111010101101010000000010101000000',
+      '00100000100111011001000010001100110011000110001001100',
+      '00101110101001100010011011111010101010110011111001100',
+      '00101110100110010011000101111001011001101011000010000',
+      '00101110100100111000001100110111111010010011101010000',
+      '00100000100011110101011000100000101101000011001001100',
+      '00111111101110011101010011101001100001000100110000100',
+      '00000000000000000000000000000000000000000000000000000',
+      '00000000000000000000000000000000000000000000000000000'
+    ]
+    const qrSigned = qr.encodeQR(urSigned).map(r => r.map(v => v ? '1' : '0').join(''))
+    if (qrSigned.join('\n') === expectedQrSigned.join('\n')) {
+      log(`✅ urCbor -> QR`)
+    } else {
+      log(`❌ urCbor -> QR`)
+      log(qrSigned.join('\n'))
+      log(expectedQrSigned.join('\n'))
+      return
+    }
+  }
+  async function textMessageSignTest() {
+    const privKey = 80157247896833422780274906011551577885466907210509513158667759145299829467000n
+    const id = hexToBytes('162d94620fd54847a24a8230989d8067')
+    const message = `I am not, and will not use the 1inch dApp as, a person who resides in, is a citizen of, is incorporated in, has a registered office in, or is otherwise located in any Prohibited Locality, nor will I use a VPN or other means to disguise my location in order to do so.
+I am lawfully permitted to access this site and use the 1inch dApp under the laws of the jurisdiction in which I reside and am located.
+I understand the risks associated with entering into and using the 1inch dApp and its underlying protocols.`
+    const signData = (new TextEncoder()).encode(message)
+    const cborSigned = await signEthRequest({ id, signData, message }, privKey)
+    const expectedUrSigned = 'UR:ETH-SIGNATURE/OEADTPDAGDCMDPMWIDBSTLFDFLOEGELFDYMKNTLAIOAOHDFPTKLDWYVADRUYTNJOZEKTPRDLLSMNQDFZQZFNWMBZNSGRNNPMLPTYLATBVTGSQZIDJYYLDKTKTBGTKSEOHTSOLEEOCFRLWKSTWTCFYKTIENKERDZMSFJNDIAHCYJSWLYTAEHPLGRLVT'
+    const urSigned = 'UR:ETH-SIGNATURE/' + encodeUR(cborSigned).toUpperCase()
+    if (urSigned === expectedUrSigned) {
+      log('✅ sign text message')
+    } else {
+      log('❌ sign text message', expectedUrSigned, urSigned)
+    }
+  }
+
+  await deriveTest(
+    'test test test test test test test test test test test input',
+    '0x5e9A0E8599Fa065F6A91C25b602163f0d59Fe56b',
+    0xb1376501360b3deb001458170185eb367369254519bf06550f667c54ba8a2778n,
+    'UR:CRYPTO-HDKEY/ONAXHDCLAXPEKBAAEHYKGANDLOGURPRTWKAHBNWZRHHDLBGSDYMYCKMNDWJPLPGLCARLTBWFHYAAHDCXNNGYPKKNOYHLBDJSTYCYVADMKKWEUYAMJSGUFZWPWEEMRSINFTPEGULULDGWTPKOAMTAADDYOEADLNCSDWYKCSFNYKAEYKAOCYCFQZRNVOAYCYIYHSEEIHASJSGUINIOJTHSJYJLJPCXDPCXDYKSECIHESHSRSKBFMLO'
+  )
+  await testTx(
+    'UR:ETH-SIGN-REQUEST/ONADTPDAGDCTWZFEHNNNCHGSDLRFCYGHWNCHFYFZLNAOHDEEAOWZLFKNINLALRINFMKTRKLRINFMKTRKLFGMASMWWFNETBVWCYPMLOYNWKTOIMROLFJPKKTKZMRHCPIYLDADHTWNTSLUHDSSAEAELARTAXAAAACFKNINAHTAADDYOEADLECSDWYKCSFNYKAEYKAEWKAEWKAOCYCFQZRNVOLOHNVAPY',
+    'UR:ETH-SIGNATURE/OEADTPDAGDCTWZFEHNNNCHGSDLRFCYGHWNCHFYFZLNAOHDFPLFCKOXFZOEUYIMURBNMKMSDTNEUEKICLAXFMHSMNZSJODNCMHEDKGMTDJPLBGDMTGHDTJLCXQDQDHEDTSPDPPYRKTPKEKTFPGYGWVAQDDTPYSPMOUTTBHYJOKGWZVAIYADPYWYVYGD'
+  )
+  await textMessageSignTest()
+  await fountainPrngTest()
+  await fountainTest()
+  await e2eSignTest()
+  await testEncryption()
+}
+
+test()
+
+</script>
+</body>
+</html>

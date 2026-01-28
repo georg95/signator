@@ -1,0 +1,15 @@
+{
+  "name": "Signator",
+  "short_name": "Signator",
+  "start_url": "/signator/index.html",
+  "display": "standalone",
+  "background_color": "#222",
+  "theme_color": "#222",
+  "icons": [
+    {
+      "src": "/signator/favicon.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    }
+  ]
+}
