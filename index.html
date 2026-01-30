@@ -11,6 +11,7 @@
     html, body {
       height: 100%;
       width: 100%;
+      display: flex;
       margin: 0;
       padding: 0;
       box-sizing: border-box;
@@ -22,13 +23,18 @@
       margin: 0;
     }
     html, body, input, textarea, pre, button {
-      font-size: 15px;
+      font-size: 16px;
       font-family: 'Courier New', Courier, monospace;
       background-color: #222;
       color: bisque;
     }
     button {
       cursor: pointer;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      background-color: #333;
+      color: bisque;
     }
     textarea {
       width: 100%;
@@ -51,13 +57,11 @@
       background-size: 70% 70%;
     }
 
+    #account {
+      flex: 1;
+    }
     #account header {
       display: flex;
-    }
-    #account_actions button, #account_settings button {
-      margin-top: 15px;
-      width: 100%;
-      height: 50px;
     }
     #qrimage {
       margin-top: 15px;
@@ -78,6 +82,7 @@
       width: 50px;
       height: 50px;
       position: absolute;
+      margin: 0;
       padding: 0;
       right: 0;
       top: 0;
@@ -86,8 +91,63 @@
       margin-top: 12px;
       width: 100%;
     }
+    #initial {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    button {
+      margin-top: 15px;
+      width: 100%;
+      height: 70px;
+    }
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      display: none;
+    }
+    .current-step {
+      height: 50px;
+      font-size: 32px;
+    }
+    #enter_seed_canvas, #enter_password_canvas {
+      flex: 1;
+    }
+    .action-buttons {
+      display: flex;
+    }
+    .action-buttons button+button {
+      margin-left: 15px;
+    }
   </style>
 <body>
+<div id="initial" style="display: none;">
+  <button disabled>Create wallet (TODO)</button>
+  <button onclick="displaySeedInput()">Import from 12 words</button>
+</div>
+<div id="enter_seed" class="pane">
+  <div class="current-step">
+    1/4
+  </div>
+  <canvas id="enter_seed_canvas"></canvas>
+  <div class="action-buttons">
+    <button class="back">Back</button>
+    <button class="next">Import</button>
+  </div>
+</div>
+<div id="enter_password" class="pane">
+  <div class="current-step">
+    2/4
+  </div>
+  <canvas id="enter_password_canvas"></canvas>
+  <div class="action-buttons">
+    <button class="back">Back</button>
+    <button class="next">Import</button>
+  </div>
+</div>
 <div id="account" style="display: none;">
   <header>
     <div class="eth-logo" style="width: 50px; height: 50px;"></div>
@@ -121,16 +181,9 @@ async function initView() {
   account = await readFromStorage('eth', 'account')
   if (account) {
     displayAccount()
-    return
+  } else {
+    document.querySelector('#initial').style.display = 'flex'
   }
-  const seedData = await displaySeedInput()
-  account = await seedPhraseToAccount(seedData)
-  const passwordData = await dispayPasswordInput(true)
-  const privKeyEncrypted = await encryptPrivkey(account.privKey, passwordData)
-  await writeToStorage('eth', 'key_enc', privKeyEncrypted)
-  await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
-  account = await readFromStorage('eth', 'account')
-  displayAccount()
 }
 
 function decryptBuffer({ buffer, enteredSymbols, salt }) {
@@ -195,9 +248,7 @@ async function dispayPasswordInput(confirmation) {
         }
       }
     }
-    if (!passwordInvalidReason) {
-      layout.unshift(['Enter'])
-    }
+    nextBtn.style.visibility = passwordInvalidReason ? 'hidden' : 'visible'
 
     ctx.fillStyle = '#222'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -232,22 +283,30 @@ async function dispayPasswordInput(confirmation) {
 
   let prevPasswordInput = null
   async function handleKeyPress(key) {
-    if (key.label === 'Enter') {
-      if (confirmation && !prevPasswordInput) {
-        prevPasswordInput = buffer.slice(0, enteredSymbols)
-        enteredSymbols = 0
-        redraw()
-        return
-      }
-      document.body.removeChild(canvas)
-      result.resolve({ buffer, enteredSymbols, salt })
-      return
-    } else if (key.label === '←') { buffer[enteredSymbols--] = 0; enteredSymbols = Math.max(enteredSymbols, 0) }
+    if (key.label === '←') { buffer[enteredSymbols--] = 0; enteredSymbols = Math.max(enteredSymbols, 0) }
     else { buffer[enteredSymbols] = key.code ^ salt[(enteredSymbols++) % salt.length] }
     redraw()
   }
 
-  const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress)
+  const nextBtn = document.querySelector('#enter_password .action-buttons .next')
+  nextBtn.style.visibility = 'hidden'
+  document.querySelector('#enter_password').style.display = 'flex'
+  nextBtn.onclick = async () => {
+    if (confirmation && !prevPasswordInput) {
+      prevPasswordInput = buffer.slice(0, enteredSymbols)
+      enteredSymbols = 0
+      redraw()
+      return
+    }
+    document.querySelector('#enter_password').style.display = 'none'
+    await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
+    const privKeyEncrypted = await encryptPrivkey(account.privKey, { buffer, enteredSymbols, salt })
+    account = await readFromStorage('eth', 'account')
+    await writeToStorage('eth', 'key_enc', privKeyEncrypted)
+    displayAccount()
+  }
+
+  const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress, document.getElementById('enter_password_canvas'))
   const fontSize = 24
   // store as buffer + xor key codes to hide password in memory
   const salt = new Uint8Array(Math.floor(Math.random() * 28) + 4)
@@ -256,8 +315,6 @@ async function dispayPasswordInput(confirmation) {
   let enteredSymbols = 0
   window.addEventListener('resize', resize)
   resize()
-  const result = deferred()
-  return result.promise
 }
 
 async function displaySeedInput() {
@@ -348,11 +405,7 @@ async function displaySeedInput() {
   let seedValid = false
   let seedStatus = ''
   async function handleKeyPress(key) {
-    if (key.label === 'Import account') {
-      document.body.removeChild(canvas)
-      result.resolve({ buffer, enteredSymbols, salt })
-      return
-    } else if (key.label === '←') { buffer[enteredSymbols--] = 0; enteredSymbols = Math.max(enteredSymbols, 0) }
+    if (key.label === '←') { buffer[enteredSymbols--] = 0; enteredSymbols = Math.max(enteredSymbols, 0) }
     else { buffer[enteredSymbols] = key.code ^ salt[(enteredSymbols++) % salt.length] }
     const seedCheck = await validateSeedPhrase()
     seedValid = seedCheck.valid
@@ -366,7 +419,7 @@ async function displaySeedInput() {
       ['A','S','D','F','G','H','J','K','L'],
       ['Z','X','C','V','B','N','M'],
       ['SPACE','←']]
-    if (seedValid) layout.unshift(['Import account'])
+    nextBtn.style.visibility = seedValid ? 'visible' : 'hidden'
 
     ctx.fillStyle = '#222'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -385,7 +438,17 @@ async function displaySeedInput() {
     redraw()
   }
 
-  const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress)
+  document.querySelector('#initial').style.display = 'none'
+  document.querySelector('#enter_seed').style.display = 'flex'
+  const nextBtn = document.querySelector('#enter_seed .action-buttons .next')
+  nextBtn.style.visibility = 'hidden'
+  nextBtn.onclick = async () => {
+    document.querySelector('#enter_seed').style.display = 'none'
+    dispayPasswordInput(true)
+    // TODO reset canvas
+    account = await seedPhraseToAccount({ buffer, enteredSymbols, salt })
+  }
+  const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress, document.getElementById('enter_seed_canvas'))
   const fontSize = 24
   const GLYPH = createGlyphAtlas(fontSize)
   // store as buffer + xor key codes to hide seed phrase in memory
@@ -399,15 +462,11 @@ async function displaySeedInput() {
   }
   window.addEventListener('resize', resize)
   resize()
-  const result = deferred()
-  return result.promise
 }
 
-function displayKeyboard(onKey) {
-  const canvas = document.createElement('canvas')
+function displayKeyboard(onKey, canvas) {
   canvas.style.border = '2px solid bisque'
   canvas.style.margin = '20px -20px'
-  document.body.appendChild(canvas)
   const ctx = canvas.getContext('2d')
 
   let keys = []
@@ -451,8 +510,8 @@ function displayKeyboard(onKey) {
 
   async function handlePointer(e) {
     const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const x = (e.clientX - rect.left) / rect.width * canvas.width
+    const y = (e.clientY - rect.top) / rect.height * canvas.height
     const key = keys.find((k) => x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h)
     if (key) {
       if (navigator.vibrate) { navigator.vibrate(20) }
@@ -3017,15 +3076,15 @@ async function resetCache() {
   for (const reg of regs) await reg.unregister()
   location.href = location.pathname
 }
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js')
-    .then(reg => {
-      console.log('Service worker registered:', reg.scope);
-    })
-    .catch(err => {
-      console.error('Service worker registration failed:', err);
-    });
-}
+// if ('serviceWorker' in navigator) {
+//   navigator.serviceWorker.register('sw.js')
+//     .then(reg => {
+//       console.log('Service worker registered:', reg.scope);
+//     })
+//     .catch(err => {
+//       console.error('Service worker registration failed:', err);
+//     });
+// }
 
 </script>
 </body>
