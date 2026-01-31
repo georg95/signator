@@ -11,13 +11,13 @@
     html, body {
       height: 100%;
       width: 100%;
-      display: flex;
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
     body {
       padding: 20px;
+      display: flex;
     }
     #output {
       margin: 0;
@@ -107,10 +107,16 @@
       flex: 1;
       flex-direction: column;
       display: none;
+      justify-content: space-between;
+    }
+    #generate_seed_canvas {
+      flex: 1;
+      border: 2px solid bisque;
+      margin: 0 -20px;
     }
     .current-step {
-      height: 50px;
       font-size: 32px;
+      margin-bottom: 15px;
     }
     #enter_seed_canvas, #enter_password_canvas {
       flex: 1;
@@ -124,8 +130,18 @@
   </style>
 <body>
 <div id="initial" style="display: none;">
-  <button disabled>Create wallet (TODO)</button>
+  <button onclick="generateSeed()">Create wallet</button>
   <button onclick="displaySeedInput()">Import from 12 words</button>
+</div>
+<div id="generate_seed" class="pane">
+  <div class="current-step">
+    1/4 - Write down these words with pen and paper
+  </div>
+  <canvas id="generate_seed_canvas"></canvas>
+  <div class="action-buttons">
+    <button class="back">Back</button>
+    <button class="next">Next</button>
+  </div>
 </div>
 <div id="enter_seed" class="pane">
   <div class="current-step">
@@ -256,6 +272,56 @@ async function decryptPrivkey({ encSeed, salt, iv }, passwordData) {
   }
 }
 
+setTimeout(generateSeed, 100)
+
+async function generateSeed() {
+  document.querySelector('#initial').style.display = 'none'
+  document.querySelector('#generate_seed').style.display = 'flex'
+  const canvas = document.querySelector('#generate_seed_canvas')
+  const ctx = canvas.getContext('2d')
+
+  function redraw() {
+    const paddingV = fontSize
+    const paddingH = fontSize
+    const buttonPadding = canvas.height / 25
+    const buttonH = (canvas.height - paddingH*2 - buttonPadding * 5) / 6
+    const buttonW = (canvas.width - paddingV*2 - buttonPadding) / 2
+
+    ctx.fillStyle = '#222'
+    ctx.strokeStyle = 'bisque'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    function drawWord(index, word, x, y) {
+      let curX = x, curY = y, indexS = `${index}. `
+      for (let curWord of [`${index}. `, word]) {
+        for (let i = 0; i < curWord.length; i++) {
+          const g = GLYPH.glyphs[curWord.charCodeAt(i)]
+          ctx.drawImage(GLYPH.atlas, g.x, g.y, g.w, g.h, curX, curY, g.w / 2, g.h / 2)
+          curX += fontSize * 0.55
+        }
+      }
+    }
+    for (let i = 0; i < mnemonicIndexes.length; i++) {
+      let x = paddingV
+      let y = paddingH + (buttonH + buttonPadding) * i
+      if (i >= 6) {
+        x = paddingV + buttonW + buttonPadding
+        y = paddingH + (buttonH + buttonPadding) * (i - 6)
+      }
+      ctx.strokeRect(x, y, buttonW, buttonH)
+      drawWord(i+1, biplist[mnemonicIndexes[i]], x + fontSize, y + buttonH / 2 - fontSize / 2)
+    }
+  }
+
+  const rect = canvas.getBoundingClientRect()
+  canvas.width  = rect.width - 4
+  canvas.height = rect.height
+  const fontSize = canvas.width / 20
+  const GLYPH = createGlyphAtlas(fontSize, 2)
+  const mnemonicIndexes = await randomMnemonic()
+  redraw()
+  return
+}
+
 function deferred() { let resolve, reject, promise = new Promise((res, rej) => {resolve = res;reject = rej;}); return { promise, resolve, reject } }
 
 async function dispayPasswordInput(canvas, nextBtn, confirmation) {
@@ -346,37 +412,38 @@ async function dispayPasswordInput(canvas, nextBtn, confirmation) {
   return result.promise
 }
 
-async function displaySeedInput() {
-  function createGlyphAtlas(glyphSize) {
-    const ABC = '0123456789abcdefghijklmnopqrstuvwxyz _.'
-    const glyphs = new Array(256)
-    const cols = 12, rows = 5
-    const atlas = document.createElement('canvas')
-    atlas.width  = cols * glyphSize
-    atlas.height = rows * glyphSize
-    const gctx = atlas.getContext('2d')
-    gctx.fillStyle = 'rgba(0, 0, 0, 0)'
-    gctx.fillRect(0, 0, atlas.width, atlas.height)
-    gctx.fillStyle = 'bisque'
-    gctx.font = `${glyphSize - 4}px monospace`
-    gctx.textAlign = 'center'
-    gctx.textBaseline = 'middle'
-    for (let index = 0; index < ABC.length; index++) {
-      const col = index % cols
-      const row = Math.floor(index / cols)
-      const x = col * glyphSize
-      const y = row * glyphSize
-      gctx.fillText(
-        ABC[index],
-        x + glyphSize / 2,
-        y + glyphSize / 2
-      )
-      glyphs[ABC.charCodeAt(index)] = { x, y, w: glyphSize, h: glyphSize }
-    }
-    return { atlas, glyphs, glyphSize }
+// to prevent leaking individual characters, using glyph atlas instead of ctx.fillText
+function createGlyphAtlas(fontSize, scaleFactor=1) {
+  let glyphSize = fontSize * scaleFactor
+  const ABC = '0123456789abcdefghijklmnopqrstuvwxyz _.'
+  const glyphs = new Array(256)
+  const cols = 12, rows = 5
+  const atlas = document.createElement('canvas')
+  atlas.width  = cols * glyphSize
+  atlas.height = rows * glyphSize
+  const gctx = atlas.getContext('2d')
+  gctx.fillStyle = 'rgba(0, 0, 0, 0)'
+  gctx.fillRect(0, 0, atlas.width, atlas.height)
+  gctx.fillStyle = 'bisque'
+  gctx.font = `${glyphSize - 4}px monospace`
+  gctx.textAlign = 'center'
+  gctx.textBaseline = 'middle'
+  for (let index = 0; index < ABC.length; index++) {
+    const col = index % cols
+    const row = Math.floor(index / cols)
+    const x = col * glyphSize
+    const y = row * glyphSize
+    gctx.fillText(
+      ABC[index],
+      x + glyphSize / 2,
+      y + glyphSize / 2
+    )
+    glyphs[ABC.charCodeAt(index)] = { x: x+1, y: y+1, w: glyphSize-2, h: glyphSize-2 }
   }
+  return { atlas, glyphs, glyphSize }
+}
 
-  // to prevent leaking individual characters, using glyph atlas instead of ctx.fillText
+async function displaySeedInput() {
   function displaySeedPhrase() {
     let curX = fontSize, curY = fontSize
     for (let i = 0; i <= enteredSymbols; i++) {
@@ -713,19 +780,31 @@ async function deleteAccount() {
 
 // =================================== Mnemonic & keys functions
 
-async function isValidMnemonic(indexes) {
+async function randomMnemonic() {
+  const indexes = window.crypto.getRandomValues(new Uint32Array(12));
+  for (let i = 0; i < indexes.length; i++) {
+    indexes[i] = indexes[i] % 2048
+  }
+  indexes[11] = indexes[11] & 0xf0
+  const entropyBytes = getEntropyBytes(indexes)
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', entropyBytes.subarray(0, 16))); entropyBytes.fill(0);
+  indexes[11] = indexes[11] | (hash[0] >> 4)
+  return indexes
+}
+
+function getEntropyBytes(indexes) {
   const entropyBytes = new Uint8Array(33)
-  let acc = 0;
-  let accBits = 0;
-  var j = 0;
+  let acc = 0, accBits = 0, j = 0;
   for (let i = 0; i < indexes.length; i++) {
     acc = (acc << 11) | indexes[i];
     accBits += 11;
-    while (accBits >= 8) {
-      accBits -= 8;
-      entropyBytes[j++] = (acc >>> accBits) & 0xff;
-    }
+    while (accBits >= 8) { accBits -= 8; entropyBytes[j++] = (acc >>> accBits) & 0xff; }
   }
+  return entropyBytes
+}
+
+async function isValidMnemonic(indexes) {
+  const entropyBytes = getEntropyBytes(indexes)
   if (indexes.length === 12) {
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', entropyBytes.subarray(0, 16))); entropyBytes.fill(0);
     return (indexes[11] & 0x0f) === hash[0] >> 4;
