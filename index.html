@@ -71,7 +71,7 @@
       align-items: center;
     }
     #tx_info {
-      margin: 15px 0;
+      flex: 1;
       word-break: break-all;
     }
     #account header {
@@ -105,7 +105,6 @@
     }
     .pane {
       flex: 1;
-      display: flex;
       flex-direction: column;
       display: none;
     }
@@ -145,10 +144,51 @@
   <canvas id="enter_password_canvas"></canvas>
   <div class="action-buttons">
     <button class="back">Back</button>
-    <button class="next">Import</button>
+    <button class="next">Confirm</button>
   </div>
 </div>
-<div id="account" style="display: none;">
+<div id="scan_transaction_qr" class="pane">
+  <div class="current-step">
+    1/4
+  </div>
+  <video id="qrcam" autoplay playsinline style="display: none;"></video>
+  <canvas id="qrcanvas" style="display: none;" willReadFrequently></canvas>
+  <progress id="fountain_progress" value="0" max="100" style="display: none;"></progress>
+  <div class="action-buttons">
+    <button class="back">Cancel</button>
+  </div>
+</div>
+<div id="view_transaction" class="pane">
+  <div class="current-step">
+    2/4
+  </div>
+  <div id="tx_info"></div>
+  <div class="action-buttons">
+    <button class="back">Cancel</button>
+    <button class="next">Sign</button>
+  </div>
+</div>
+<div id="sign_transaction" class="pane">
+  <div class="current-step">
+    3/4
+  </div>
+  <canvas></canvas>
+  <div class="action-buttons">
+    <button class="back">Cancel</button>
+    <button class="next">Sign</button>
+  </div>
+</div>
+<div id="signed_transaction_qr" class="pane">
+  <div class="current-step">
+    4/4
+  </div>
+  <canvas id="qr_signed_tx"></canvas>
+  <div class="action-buttons">
+    <button class="back">Check again</button>
+    <button class="next">Done</button>
+  </div>
+</div>
+<div id="account" class="pane">
   <header>
     <div class="eth-logo" style="width: 50px; height: 50px;"></div>
     <div id="account_addr"></div>
@@ -156,8 +196,6 @@
   </header>
   <div id="account_actions">
     <button id="scan_qr" onclick="scanTransactionQR()">Scan transaction QR</button>
-    <div id="tx_info" style="display: none;"></div>
-    <canvas id="qr_signed_tx" style="display: none;"></canvas>
   </div>
   <div id="account_settings" style="display: none;">
     <canvas id="qrimage"></canvas>
@@ -165,10 +203,7 @@
     <button onclick="deleteAccount()">Delete account</button>
   </div>
 </div>
-<progress id="fountain_progress" value="0" max="100" style="display: none;"></progress>
-<video id="qrcam" autoplay playsinline style="display: none;"></video>
-<canvas id="qrcanvas" style="display: none;" willReadFrequently></canvas>
-<pre id="output"></pre>
+
 <script>
 // =================================== User interface
 
@@ -223,7 +258,7 @@ async function decryptPrivkey({ encSeed, salt, iv }, passwordData) {
 
 function deferred() { let resolve, reject, promise = new Promise((res, rej) => {resolve = res;reject = rej;}); return { promise, resolve, reject } }
 
-async function dispayPasswordInput(confirmation) {
+async function dispayPasswordInput(canvas, nextBtn, confirmation) {
   async function redraw() {
     const layout = [
       ['1','2','3','4','5','6','7','8','9','0'],
@@ -288,9 +323,7 @@ async function dispayPasswordInput(confirmation) {
     redraw()
   }
 
-  const nextBtn = document.querySelector('#enter_password .action-buttons .next')
   nextBtn.style.visibility = 'hidden'
-  document.querySelector('#enter_password').style.display = 'flex'
   nextBtn.onclick = async () => {
     if (confirmation && !prevPasswordInput) {
       prevPasswordInput = buffer.slice(0, enteredSymbols)
@@ -298,15 +331,9 @@ async function dispayPasswordInput(confirmation) {
       redraw()
       return
     }
-    document.querySelector('#enter_password').style.display = 'none'
-    await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
-    const privKeyEncrypted = await encryptPrivkey(account.privKey, { buffer, enteredSymbols, salt })
-    account = await readFromStorage('eth', 'account')
-    await writeToStorage('eth', 'key_enc', privKeyEncrypted)
-    displayAccount()
+    result.resolve({ buffer, enteredSymbols, salt })
   }
-
-  const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress, document.getElementById('enter_password_canvas'))
+  const { drawKeyboard, ctx } = displayKeyboard(handleKeyPress, canvas)
   const fontSize = 24
   // store as buffer + xor key codes to hide password in memory
   const salt = new Uint8Array(Math.floor(Math.random() * 28) + 4)
@@ -315,6 +342,8 @@ async function dispayPasswordInput(confirmation) {
   let enteredSymbols = 0
   window.addEventListener('resize', resize)
   resize()
+  const result = deferred()
+  return result.promise
 }
 
 async function displaySeedInput() {
@@ -440,13 +469,22 @@ async function displaySeedInput() {
 
   document.querySelector('#initial').style.display = 'none'
   document.querySelector('#enter_seed').style.display = 'flex'
-  const nextBtn = document.querySelector('#enter_seed .action-buttons .next')
+  const nextBtn = document.querySelector('#enter_seed .next')
   nextBtn.style.visibility = 'hidden'
   nextBtn.onclick = async () => {
     document.querySelector('#enter_seed').style.display = 'none'
-    dispayPasswordInput(true)
-    // TODO reset canvas
+    document.querySelector('#enter_password').style.display = 'flex'
+    const passwordData = await dispayPasswordInput(
+      document.getElementById('enter_password_canvas'),
+      document.querySelector('#enter_password .next'), true)
+    document.querySelector('#enter_password').style.display = 'none'
+
     account = await seedPhraseToAccount({ buffer, enteredSymbols, salt })
+    const privKeyEncrypted = await encryptPrivkey(account.privKey, passwordData)
+    await writeToStorage('eth', 'key_enc', privKeyEncrypted)
+    await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
+    account = await readFromStorage('eth', 'account')
+    displayAccount()
   }
   const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress, document.getElementById('enter_seed_canvas'))
   const fontSize = 24
@@ -540,27 +578,23 @@ function triggerSettings() {
 }
 
 async function scanTransactionQR() {
+  document.querySelector('#account').style.display = 'none'
+  document.querySelector('#scan_transaction_qr').style.display = 'flex'
   const video = document.getElementById("qrcam")
-  window.scan_qr.innerText = 'Opening camera...'
   const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }})
   video.srcObject = stream
   video.style.display = 'block'
-  window.scan_qr.innerText = 'Cancel'
-  window.scan_qr.onclick = () => stream.getTracks().forEach(t => t.stop())
+  document.querySelector('#scan_transaction_qr .back').onclick = () => stream.getTracks().forEach(t => t.stop())
   
   const unsignedTx = await scanLoop(stream, video)
 
-  window.scan_qr.innerText = 'Scan transaction QR'
-  window.scan_qr.onclick = scanTransactionQR
-  video.style.display = 'none'
-  window.fountain_progress.style.display = 'none'
-  if (unsignedTx === 'aborted') { return }
   stream.getTracks().forEach(t => t.stop())
-  if (!unsignedTx) {
-    log('❌ Invalid QR code format')
+  document.querySelector('#scan_transaction_qr').style.display = 'none'
+  if (unsignedTx === 'aborted' || !unsignedTx) {
+    document.querySelector('#account').style.display = 'flex'
     return
   }
-  signTransaction(unsignedTx)
+  viewTransactionInfo(unsignedTx)
 }
 
 async function scanLoop(stream, video) {
@@ -594,8 +628,7 @@ async function scanLoop(stream, video) {
   return 'aborted'
 }
 
-async function signTransaction(transaction) {
-  window.output.innerText = ''
+async function viewTransactionInfo(transaction) {
   const tx = decodeTranscation(transaction)
   if (tx.to && tx.data.length === 0) {
     window.tx_info.innerHTML = `Approve this transcation?<br/>
@@ -622,21 +655,36 @@ Raw transaction(hex):
 ${bytesToHex(tx.signData)}
 `
   }
-  window.tx_info.style.display = 'block'
-  
+  document.querySelector('#view_transaction').style.display = 'flex'
+  document.querySelector('#view_transaction .next').onclick = () => {
+    document.querySelector('#view_transaction').style.display = 'none'
+    signTransaction(tx)
+  }
+}
+async function signTransaction(tx) {
   let signedTx = null
   while(!signedTx) {
-    const passwordData = await dispayPasswordInput(false)
+    document.querySelector('#sign_transaction').style.display = 'flex'
+    const passwordData = await dispayPasswordInput(
+      document.querySelector('#sign_transaction canvas'),
+      document.querySelector('#sign_transaction .next'))
+    document.querySelector('#sign_transaction').style.display = 'none'
     const privKeyEncrypted = await readFromStorage('eth', 'key_enc')
     const privKey = await decryptPrivkey(privKeyEncrypted, passwordData)
     if (privKey === null) {
-      log('invalid password')
+      // TODO
+      console.log('invalid password')
       continue
     }
     signedTx = await signEthRequest(tx, privKey)
   }
-  window.output.innerHTML = ''
-  displayQR(document.getElementById("qr_signed_tx"), 'UR:ETH-SIGNATURE/' + encodeUR(signedTx).toUpperCase())
+
+  document.querySelector('#signed_transaction_qr').style.display = 'flex'
+  displayQR(document.querySelector("#qr_signed_tx"), 'UR:ETH-SIGNATURE/' + encodeUR(signedTx).toUpperCase())
+  document.querySelector('#signed_transaction_qr .next').onclick = () => {
+    document.querySelector('#signed_transaction_qr').style.display = 'none'
+    document.querySelector('#account').style.display = 'flex'
+  }
 }
 
 function displayQR(canvas, qrData) {
@@ -1076,7 +1124,6 @@ function invert(number, modulo) {
 
 // =================================== Utils
 
-function log(...texts) { window.output.innerText += texts.join('\n') + '\n' }
 function revBytesU32(n) { return (((n & 0xFF) << 24) | ((n & 0xFF00) << 8) | ((n & 0xFF0000) >>> 8)  |((n & 0xFF000000) >>> 24)) >>> 0 }
 function intToBytes(i) { return [(i >>> 24) & 0xff, (i >>> 16) & 0xff, (i >>> 8) & 0xff, i & 0xff] }
 function bytesToBigInt(b) { let r = 0n; for (let i = 0; i < b.length; i++) {r = (r << 8n) | BigInt(b[i])} return r }
