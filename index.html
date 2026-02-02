@@ -272,11 +272,7 @@ async function decryptPrivkey({ encSeed, salt, iv }, passwordData) {
   }
 }
 
-setTimeout(generateSeed, 100)
-
 async function generateSeed() {
-  document.querySelector('#initial').style.display = 'none'
-  document.querySelector('#generate_seed').style.display = 'flex'
   const canvas = document.querySelector('#generate_seed_canvas')
   const ctx = canvas.getContext('2d')
 
@@ -312,6 +308,23 @@ async function generateSeed() {
     }
   }
 
+  document.querySelector('#initial').style.display = 'none'
+  document.querySelector('#generate_seed').style.display = 'flex'
+  const nextBtn = document.querySelector('#generate_seed .next')
+  nextBtn.onclick = async () => {
+    document.querySelector('#generate_seed').style.display = 'none'
+    document.querySelector('#enter_password').style.display = 'flex'
+    const passwordData = await dispayPasswordInput(
+      document.querySelector('#enter_password_canvas'),
+      document.querySelector('#enter_password .next'), true)
+    document.querySelector('#enter_password').style.display = 'none'
+    account = await seedPhraseToAccount(indexesToMnemonicBuffer(mnemonicIndexes))
+    const privKeyEncrypted = await encryptPrivkey(account.privKey, passwordData)
+    await writeToStorage('eth', 'key_enc', privKeyEncrypted)
+    await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
+    account = await readFromStorage('eth', 'account')
+    displayAccount()
+  }
   const rect = canvas.getBoundingClientRect()
   canvas.width  = rect.width - 4
   canvas.height = rect.height
@@ -546,7 +559,7 @@ async function displaySeedInput() {
       document.querySelector('#enter_password .next'), true)
     document.querySelector('#enter_password').style.display = 'none'
 
-    account = await seedPhraseToAccount({ buffer, enteredSymbols, salt })
+    account = await seedPhraseToAccount(decryptBuffer({ buffer, enteredSymbols, salt }))
     const privKeyEncrypted = await encryptPrivkey(account.privKey, passwordData)
     await writeToStorage('eth', 'key_enc', privKeyEncrypted)
     await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
@@ -780,6 +793,21 @@ async function deleteAccount() {
 
 // =================================== Mnemonic & keys functions
 
+function indexesToMnemonicBuffer(mnemonicIndexes) {
+  const mnemonicBuffer = new Uint8Array(256)
+  let mnemonicLen = 0
+  for (let wordIndex of mnemonicIndexes) {
+    if (mnemonicLen > 0) {
+      mnemonicBuffer[mnemonicLen++] = 0x20
+    }
+    const word = biplist[wordIndex]
+    for (let i = 0; i < word.length; i++) {
+      mnemonicBuffer[mnemonicLen++] = word.charCodeAt(i)
+    }
+  }
+  return mnemonicBuffer.subarray(0, mnemonicLen)
+}
+
 async function randomMnemonic() {
   const indexes = window.crypto.getRandomValues(new Uint32Array(12));
   for (let i = 0; i < indexes.length; i++) {
@@ -821,8 +849,7 @@ async function isValidMnemonic(indexes) {
   return false
 }
 
-async function seedPhraseToAccount(bufferData) {
-  const mnemonicBuffer = decryptBuffer(bufferData)
+async function seedPhraseToAccount(mnemonicBuffer) {
   const key = crypto.subtle.importKey("raw", mnemonicBuffer, { name: "PBKDF2" }, false, ["deriveBits"]); mnemonicBuffer.fill(0)
   const masterSeed = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode("mnemonic"), iterations: 2048, hash: "SHA-512" }, await key, 512))
   let { privKey, accData } = await derivePath(masterSeed)
