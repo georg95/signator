@@ -22,11 +22,12 @@
     #output {
       margin: 0;
     }
-    html, body, input, textarea, pre, button {
+    html, body, input, textarea, pre, button, select, option {
       font-size: 16px;
       font-family: 'Courier New', Courier, monospace;
       background-color: #222;
       color: bisque;
+      outline: none;
     }
     button {
       cursor: pointer;
@@ -40,7 +41,7 @@
       width: 100%;
       min-height: 60px;
     }
-    input {
+    input, select, option {
       width: 100%;
       height: 40px;
       margin-bottom: 20px;
@@ -63,7 +64,7 @@
     #account header {
       display: flex;
     }
-    #qrimage {
+    #account_setup_qr, #account_settings_qr {
       margin-top: 15px;
     }
     #account_addr {
@@ -155,12 +156,40 @@
 </div>
 <div id="enter_password" class="pane">
   <div class="current-step">
-    2/4
+    2/4 Enter password
   </div>
   <canvas id="enter_password_canvas"></canvas>
   <div class="action-buttons">
     <button class="back">Back</button>
     <button class="next">Confirm</button>
+  </div>
+</div>
+<div id="download_wallet" class="pane">
+  <div class="current-step">
+    3/4 Install Rabby wallet
+  </div>
+  <select onchange="displayWalletLink(event.target.value)"><option>Android</option><option>iOS</option></select>
+  <canvas id="download_wallet_link"></canvas>
+  <div class="action-buttons">
+    <button class="back">Back</button>
+    <button class="next">Next</button>
+  </div>
+</div>
+<div id="connect_wallet" class="pane">
+  <div class="current-step">
+    4/4 Connect wallet
+  </div>
+  <p>
+    Open Rabby wallet on your second device -><br />
+    <b>*I already have a wallet*</b> -><br />
+    <b>*Connect Hardware Wallets*</b> -><br />
+    <b>*Keystone*</b> -><br />
+    <b>*Next*</b> -><br />
+  </p>
+  <canvas id="account_setup_qr"></canvas>
+  <div class="action-buttons">
+    <button class="back">Back</button>
+    <button class="next">Done</button>
   </div>
 </div>
 <div id="scan_transaction_qr" class="pane">
@@ -214,7 +243,7 @@
     <button id="scan_qr" onclick="scanTransactionQR()">Scan transaction QR</button>
   </div>
   <div id="account_settings" style="display: none;">
-    <canvas id="qrimage"></canvas>
+    <canvas id="account_settings_qr"></canvas>
     <button onclick="resetCache()">Reset offline cache</button>
     <button onclick="deleteAccount()">Delete account</button>
   </div>
@@ -234,41 +263,6 @@ async function initView() {
     displayAccount()
   } else {
     document.querySelector('#initial').style.display = 'flex'
-  }
-}
-
-function decryptBuffer({ buffer, enteredSymbols, salt }) {
-  const decryptedBuffer = new Uint8Array(enteredSymbols)
-  for (let i = 0; i < decryptedBuffer.length; i++) {
-    decryptedBuffer[i] = buffer[i] ^ salt[i % salt.length]
-  }
-  buffer.fill(0)
-  salt.fill(0)
-  return decryptedBuffer
-}
-
-async function encryptPrivkey(privKey, passwordData) {
-  const salt = window.crypto.getRandomValues(new Uint8Array(16));
-  const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const password = decryptBuffer(passwordData)
-  const baseKey = crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveKey"]); password.fill(0)
-  const aesKey = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 600000, hash: "SHA-512" },
-    await baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt"])
-  const privKeyBuf = numberToBytesBE(privKey, 32)
-  const encSeed = crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, privKeyBuf); privKeyBuf.fill(0)
-  return { encSeed: new Uint8Array(await encSeed), salt, iv }
-}
-async function decryptPrivkey({ encSeed, salt, iv }, passwordData) {
-  const password = decryptBuffer(passwordData)
-  const baseKey = crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveKey"]); password.fill(0)
-  const aesKey = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 600000, hash: "SHA-512" },
-    await baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"])
-  try {
-    const privKeyBuf = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, encSeed))
-    const privKey = bytesToBigInt(privKeyBuf); privKeyBuf.fill(0)
-    return privKey
-  } catch(e) {
-    return null
   }
 }
 
@@ -323,7 +317,7 @@ async function generateSeed() {
     await writeToStorage('eth', 'key_enc', privKeyEncrypted)
     await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
     account = await readFromStorage('eth', 'account')
-    displayAccount()
+    displayWalletLink()
   }
   const rect = canvas.getBoundingClientRect()
   canvas.width  = rect.width - 4
@@ -641,10 +635,32 @@ function displayKeyboard(onKey, canvas) {
   return { canvas, ctx, drawKeyboard }
 }
 
+function displayWalletLink(os='Android') {
+  document.querySelector('#download_wallet').style.display = 'flex'
+  const android = 'https://play.google.com/store/apps/details?id=com.debank.rabbymobile'
+  const ios = 'https://apps.apple.com/us/app/rabby-wallet-crypto-evm/id6474381673'
+  displayQR(document.querySelector("#download_wallet_link"), os === 'Android' ? android : ios, 'byte')
+
+  document.querySelector('#download_wallet .next').onclick = () => {
+    document.querySelector('#download_wallet').style.display = 'none'
+    displayConnectWallet()
+  }
+}
+
+function displayConnectWallet() {
+  document.querySelector('#connect_wallet').style.display = 'flex'
+  displayQR(document.getElementById("account_setup_qr"), account?.qr || '')
+
+  document.querySelector('#connect_wallet .next').onclick = () => {
+    document.querySelector('#connect_wallet').style.display = 'none'
+    displayAccount()
+  }
+}
+
 async function displayAccount() {
   const address = account.address
   window.account.style.display = 'block'
-  window.account_addr.innerText = address.substring(0, 5) + '...' + address.substring(address.length - 4)
+  window.account_addr.innerText = address.substring(0, 8) + '...' + address.substring(address.length - 6)
 }
 function triggerSettings() {
   if (window.account_actions.style.display === 'none') {
@@ -653,7 +669,7 @@ function triggerSettings() {
   } else {
     window.account_actions.style.display = 'none'
     window.account_settings.style.display = 'block'
-    displayQR(document.getElementById("qrimage"), account.qr || '')
+    displayQR(document.getElementById("account_settings_qr"), account.qr || '')
   }
 }
 
@@ -767,9 +783,9 @@ async function signTransaction(tx) {
   }
 }
 
-function displayQR(canvas, qrData) {
+function displayQR(canvas, qrData, type='alphanumeric') {
   canvas.style.display = 'block'
-  const qrBitmap = qr.encodeQR(qrData)
+  const qrBitmap = qr.encodeQR(qrData, type)
   const ctx = canvas.getContext("2d")
   ctx.imageSmoothingEnabled = false
   const moduleSize = Math.floor(canvas.width / qrBitmap.length)
@@ -792,6 +808,42 @@ async function deleteAccount() {
 }
 
 // =================================== Mnemonic & keys functions
+
+function decryptBuffer({ buffer, enteredSymbols, salt }) {
+  const decryptedBuffer = new Uint8Array(enteredSymbols)
+  for (let i = 0; i < decryptedBuffer.length; i++) {
+    decryptedBuffer[i] = buffer[i] ^ salt[i % salt.length]
+  }
+  buffer.fill(0)
+  salt.fill(0)
+  return decryptedBuffer
+}
+
+async function encryptPrivkey(privKey, passwordData) {
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const password = decryptBuffer(passwordData)
+  const baseKey = crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveKey"]); password.fill(0)
+  const aesKey = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 600000, hash: "SHA-512" },
+    await baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt"])
+  const privKeyBuf = numberToBytesBE(privKey, 32)
+  const encSeed = crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, privKeyBuf); privKeyBuf.fill(0)
+  return { encSeed: new Uint8Array(await encSeed), salt, iv }
+}
+
+async function decryptPrivkey({ encSeed, salt, iv }, passwordData) {
+  const password = decryptBuffer(passwordData)
+  const baseKey = crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveKey"]); password.fill(0)
+  const aesKey = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 600000, hash: "SHA-512" },
+    await baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"])
+  try {
+    const privKeyBuf = new Uint8Array(await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, encSeed))
+    const privKey = bytesToBigInt(privKeyBuf); privKeyBuf.fill(0)
+    return privKey
+  } catch(e) {
+    return null
+  }
+}
 
 function indexesToMnemonicBuffer(mnemonicIndexes) {
   const mnemonicBuffer = new Uint8Array(256)
@@ -2201,26 +2253,27 @@ var qr = (() => {
       dir = -dir;
     }
   }
-  function encode(ver, ecc, data) {
-    let encoded = "";
+  function encode(ver, ecc, data, type) {
+    let encoded = '';
     let dataLen = data.length;
-    const t = info.alphabet.alphanumerc.decode(data.split(""));
-    const n = t.length;
-    for (let i = 0; i < n - 1; i += 2)
-      encoded += bin(t[i] * 45 + t[i + 1], 11);
-    if (n % 2 == 1)
-      encoded += bin(t[n - 1], 6);
+    if (type === 'alphanumeric') {
+      const t = info.alphabet.alphanumerc.decode(data.split(''));
+      const n = t.length;
+      for (let i = 0; i < n - 1; i += 2) encoded += bin(t[i] * 45 + t[i + 1], 11);
+      if (n % 2 == 1) encoded += bin(t[n - 1], 6);
+    } else if (type === 'byte') {
+      const utf8 = new TextEncoder().encode(data);
+      dataLen = utf8.length;
+      encoded = Array.from(utf8).map((i) => bin(i, 8)).join('');
+    } else { throw new Error('encode: unsupported type'); }
     const { capacity } = info.capacity(ver, ecc);
-    const len = bin(dataLen, info.lengthBits(ver, "alphanumeric"));
-    let bits = info.modeBits["alphanumeric"] + len + encoded;
-    if (bits.length > capacity)
-      throw new Error("Capacity overflow");
-    bits += "0".repeat(Math.min(4, Math.max(0, capacity - bits.length)));
-    if (bits.length % 8)
-      bits += "0".repeat(8 - bits.length % 8);
-    const padding = "1110110000010001";
-    for (let idx = 0; bits.length !== capacity; idx++)
-      bits += padding[idx % padding.length];
+    const len = bin(dataLen, info.lengthBits(ver, type));
+    let bits = info.modeBits[type] + len + encoded;
+    if (bits.length > capacity) throw new Error('Capacity overflow');
+    bits += '0'.repeat(Math.min(4, Math.max(0, capacity - bits.length)));
+    if (bits.length % 8) bits += '0'.repeat(8 - (bits.length % 8));
+    const padding = '1110110000010001';
+    for (let idx = 0; bits.length !== capacity; idx++) bits += padding[idx % padding.length];
     const bytes = Uint8Array.from(bits.match(/(.{8})/g).map((i) => Number(`0b${i}`)));
     return interleave(ver, ecc).encode(bytes);
   }
@@ -2309,13 +2362,13 @@ var qr = (() => {
       throw new Error("Cannot find mask");
     return drawQR(ver, ecc, data, maskIdx);
   }
-  function encodeQR(text) {
+  function encodeQR(text, type='alphanumeric') {
     const ecc = "medium"
     let ver = undefined;
     let data, err = new Error("Unknown error");
     for (let i = 1; i <= 40; i++) {
       try {
-        data = encode(i, ecc, text, 'alphanumeric');
+        data = encode(i, ecc, text, type);
         ver = i;
         break;
       } catch (e) {
