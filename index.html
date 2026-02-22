@@ -558,7 +558,7 @@ async function displaySeedInput() {
     await writeToStorage('eth', 'key_enc', privKeyEncrypted)
     await writeToStorage('eth', 'account', { address: account.address, qr: account.qr })
     account = await readFromStorage('eth', 'account')
-    displayAccount()
+    displayWalletLink()
   }
   const { drawKeyboard, canvas, ctx } = displayKeyboard(handleKeyPress, document.getElementById('enter_seed_canvas'))
   const fontSize = 24
