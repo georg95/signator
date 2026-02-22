@@ -59,7 +59,7 @@ async function test(params) {
     return { buffer, enteredSymbols, salt }
   }
   async function deriveTest(seed, address, privKey, qr) {
-    const acc = await seedPhraseToAccount(encBuffer(seed))
+    const acc = await seedPhraseToAccount((new TextEncoder()).encode(seed))
     if (acc.address === address.toLowerCase() && acc.privKey === privKey && acc.qr === qr) {
       log('✅ bip39 seed to account')
     } else {
@@ -264,16 +264,16 @@ I understand the risks associated with entering into and using the 1inch dApp an
     '0x5e9A0E8599Fa065F6A91C25b602163f0d59Fe56b',
     0xb1376501360b3deb001458170185eb367369254519bf06550f667c54ba8a2778n,
     'UR:CRYPTO-HDKEY/ONAXHDCLAXPEKBAAEHYKGANDLOGURPRTWKAHBNWZRHHDLBGSDYMYCKMNDWJPLPGLCARLTBWFHYAAHDCXNNGYPKKNOYHLBDJSTYCYVADMKKWEUYAMJSGUFZWPWEEMRSINFTPEGULULDGWTPKOAMTAADDYOEADLNCSDWYKCSFNYKAEYKAOCYCFQZRNVOAYCYIYHSEEIHASJSGUINIOJTHSJYJLJPCXDPCXDYKSECIHESHSRSKBFMLO'
-  )
+  ).catch(e => log(`❌ ERROR: ${e.message}`))
   await testTx(
     'UR:ETH-SIGN-REQUEST/ONADTPDAGDCTWZFEHNNNCHGSDLRFCYGHWNCHFYFZLNAOHDEEAOWZLFKNINLALRINFMKTRKLRINFMKTRKLFGMASMWWFNETBVWCYPMLOYNWKTOIMROLFJPKKTKZMRHCPIYLDADHTWNTSLUHDSSAEAELARTAXAAAACFKNINAHTAADDYOEADLECSDWYKCSFNYKAEYKAEWKAEWKAOCYCFQZRNVOLOHNVAPY',
     'UR:ETH-SIGNATURE/OEADTPDAGDCTWZFEHNNNCHGSDLRFCYGHWNCHFYFZLNAOHDFPLFCKOXFZOEUYIMURBNMKMSDTNEUEKICLAXFMHSMNZSJODNCMHEDKGMTDJPLBGDMTGHDTJLCXQDQDHEDTSPDPPYRKTPKEKTFPGYGWVAQDDTPYSPMOUTTBHYJOKGWZVAIYADPYWYVYGD'
-  )
-  await textMessageSignTest()
-  await fountainPrngTest()
-  await fountainTest()
-  await e2eSignTest()
-  await testEncryption()
+  ).catch(e => log(`❌ ERROR: ${e.message}`))
+  await textMessageSignTest().catch(e => log(`❌ ERROR: ${e.message}`))
+  await fountainPrngTest().catch(e => log(`❌ ERROR: ${e.message}`))
+  await fountainTest().catch(e => log(`❌ ERROR: ${e.message}`))
+  await e2eSignTest().catch(e => log(`❌ ERROR: ${e.message}`))
+  await testEncryption().catch(e => log(`❌ ERROR: ${e.message}`))
 }
 
 test()
