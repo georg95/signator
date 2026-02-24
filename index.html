@@ -51,13 +51,6 @@
       background-color: #000;
       flex: 1;
     }
-    .eth-logo {
-      background-image: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='UTF-8'%3F%3E%3Csvg xmlns='http://www.w3.org/2000/svg' version='1.1' viewBox='0 0 540 879.4'%3E%3Cpath d='m269.9 325.2-269.9 122.7 269.9 159.6 270-159.6z' opacity='.6'/%3E%3Cpath d='m0.1 447.8 269.9 159.6v-607.4z' opacity='.45'/%3E%3Cpath d='m270 0v607.4l269.9-159.6z' opacity='.8'/%3E%3Cpath d='m0 499 269.9 380.4v-220.9z' opacity='.45'/%3E%3Cpath d='m269.9 658.5v220.9l270.1-380.4z' opacity='.8'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: center;
-      background-size: 70% 70%;
-    }
-
     #account {
       flex: 1;
     }
@@ -67,7 +60,15 @@
     #account_setup_qr, #account_settings_qr {
       margin-top: 15px;
     }
+    #account_icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      line-height: 0;
+      overflow: hidden;
+    }
     #account_addr {
+      margin-left: 20px;
       display: flex;
       align-items: center;
     }
@@ -235,7 +236,7 @@
 </div>
 <div id="account" class="pane">
   <header>
-    <div class="eth-logo" style="width: 50px; height: 50px;"></div>
+    <div id="account_icon"></div>
     <div id="account_addr"></div>
     <button id="settings_button" onclick="triggerSettings()">⚙︎</button>
   </header>
@@ -661,6 +662,7 @@ function displayConnectWallet() {
 
 async function displayAccount() {
   const address = account.address
+  document.querySelector('#account_icon').style.backgroundImage = `url("data:image/svg+xml,${encodeURIComponent(blockieAddrSVG(address, 50))}")`
   window.account.style.display = 'block'
   window.account_addr.innerText = address.substring(0, 8) + '...' + address.substring(address.length - 6)
 }
@@ -807,6 +809,46 @@ async function deleteAccount() {
   const db = await openDB('eth')
   db.transaction('eth', 'readwrite').objectStore('eth').clear()
   location.reload()
+}
+
+
+function blockieAddrSVG(address, size) {
+  const RANDOM_SCALE = 1 / (1 << 31 >>> 0)
+  function nextRandom(rseed) {
+    const t = rseed[0] ^ (rseed[0] << 11)
+    rseed[0] = rseed[1]
+    rseed[1] = rseed[2]
+    rseed[2] = rseed[3]
+    rseed[3] = (rseed[3] ^ (rseed[3] >> 19) ^ t ^ (t >> 8)) >>> 0
+    return rseed[3] * RANDOM_SCALE
+  }
+  function randSeed(seed) {
+    const rseed = new Uint32Array([0, 0, 0, 0])
+    for (let i = 0; i < seed.length; i++) {
+      rseed[i % 4] = (rseed[i % 4] << 5) - rseed[i % 4] + seed.charCodeAt(i);
+    }
+    return rseed
+  }
+  function randomColor(rseed) {
+    return new Uint16Array([
+      nextRandom(rseed) * 360,
+      40 + nextRandom(rseed) * 60,
+      (nextRandom(rseed)+nextRandom(rseed)+nextRandom(rseed)+nextRandom(rseed))* 25,
+    ])
+  }
+  const rseed = randSeed(address.toLowerCase())
+  const c = randomColor(rseed), b = randomColor(rseed), s = randomColor(rseed)
+  const paths = ["", ""]
+  for (let i = 0; i < 32; i++) {
+    const path = Math.floor(nextRandom(rseed) * 2.3)
+    if (path === 0) { continue }
+    paths[path - 1] += `M${(i & 3)},${i >> 2}h1v1h-1zM${(7 - (i & 3))},${i >> 2}h1v1h-1z`
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" shape-rendering="optimizeSpeed" width="${size}" height="${size}">
+    <path fill="hsl(${b[0]} ${b[1]}% ${b[2]}%)" d="M0,0H8V8H0z"/>
+    <path fill="hsl(${c[0]} ${c[1]}% ${c[2]}%)" d="${paths[0]}"/>
+    <path fill="hsl(${s[0]} ${s[1]}% ${s[2]}%)" d="${paths[1]}"/>
+  </svg>`;
 }
 
 // =================================== Mnemonic & keys functions
